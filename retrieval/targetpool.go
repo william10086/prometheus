@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang/glog"
+	log "github.com/inconshreveable/log15"
 
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/utility"
@@ -69,7 +69,7 @@ func (p *TargetPool) Run() {
 			if p.targetProvider != nil {
 				targets, err := p.targetProvider.Targets()
 				if err != nil {
-					glog.Warningf("Error looking up targets, keeping old list: %s", err)
+					log.Warn("Error looking up targets, keeping old list", "error", err)
 				} else {
 					p.ReplaceTargets(targets)
 				}
@@ -128,9 +128,9 @@ func (p *TargetPool) ReplaceTargets(newTargets []Target) {
 			wg.Add(1)
 			go func(k string, oldTarget Target) {
 				defer wg.Done()
-				glog.V(1).Infof("Stopping scraper for target %s...", k)
+				log.Debug("Stopping scraper for target...", "target", k)
 				oldTarget.StopScraper()
-				glog.V(1).Infof("Scraper for target %s stopped.", k)
+				log.Debug("Scraper for target stopped.", "target", k)
 			}(k, oldTarget)
 			delete(p.targetsByURL, k)
 		}

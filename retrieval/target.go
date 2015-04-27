@@ -24,7 +24,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang/glog"
+	log "github.com/inconshreveable/log15"
+
 	"github.com/prometheus/client_golang/extraction"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -372,7 +373,7 @@ func (t *target) URL() string {
 func (t *target) InstanceIdentifier() string {
 	u, err := url.Parse(t.url)
 	if err != nil {
-		glog.Warningf("Could not parse instance URL when generating identifier, using raw URL: %s", err)
+		log.Warn("Could not parse instance URL when generating identifier, using raw URL", "error", err)
 		return t.url
 	}
 	// If we are given a port in the host port, use that.
@@ -386,7 +387,7 @@ func (t *target) InstanceIdentifier() string {
 		return fmt.Sprintf("%s:443", u.Host)
 	}
 
-	glog.Warningf("Unknown scheme %s when generating identifier, using raw URL.", u.Scheme)
+	log.Warn("Unknown scheme when generating identifier, using raw URL.", "error", u.Scheme)
 	return t.url
 }
 
@@ -395,7 +396,7 @@ func (t *target) GlobalURL() string {
 	url := t.url
 	hostname, err := os.Hostname()
 	if err != nil {
-		glog.Warningf("Couldn't get hostname: %s, returning target.URL()", err)
+		log.Warn("Couldn't get hostname, returning target.URL()", "error", err)
 		return url
 	}
 	for _, localhostRepresentation := range localhostRepresentations {

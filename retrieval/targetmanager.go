@@ -16,7 +16,7 @@ package retrieval
 import (
 	"sync"
 
-	"github.com/golang/glog"
+	log "github.com/inconshreveable/log15"
 
 	clientmodel "github.com/prometheus/client_golang/model"
 
@@ -61,7 +61,7 @@ func (m *targetManager) targetPoolForJob(job config.JobConfig) *TargetPool {
 
 		interval := job.ScrapeInterval()
 		targetPool = NewTargetPool(provider, m.sampleAppender, interval)
-		glog.Infof("Pool for job %s does not exist; creating and starting...", job.GetName())
+		log.Info("Pool for job does not exist; creating and starting...", "job", job.GetName())
 
 		m.poolsByJob[job.GetName()] = targetPool
 		go targetPool.Run()
@@ -125,19 +125,19 @@ func (m *targetManager) Stop() {
 	m.Lock()
 	defer m.Unlock()
 
-	glog.Info("Stopping target manager...")
+	log.Info("Stopping target manager...")
 	var wg sync.WaitGroup
 	for j, p := range m.poolsByJob {
 		wg.Add(1)
 		go func(j string, p *TargetPool) {
 			defer wg.Done()
-			glog.Infof("Stopping target pool %q...", j)
+			log.Info("Stopping target pool...", "pool", j)
 			p.Stop()
-			glog.Infof("Target pool %q stopped.", j)
+			log.Info("Target pool stopped.", "pool", j)
 		}(j, p)
 	}
 	wg.Wait()
-	glog.Info("Target manager stopped.")
+	log.Info("Target manager stopped.")
 }
 
 func (m *targetManager) Pools() map[string]*TargetPool {

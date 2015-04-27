@@ -20,7 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/glog"
+	log "github.com/inconshreveable/log15"
+
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -114,7 +115,7 @@ func (p *sdTargetProvider) Targets() ([]Target, error) {
 	for _, record := range response.Answer {
 		addr, ok := record.(*dns.SRV)
 		if !ok {
-			glog.Warningf("%q is not a valid SRV record", record)
+			log.Warn("Invalid SRV record", "record", record)
 			continue
 		}
 		// Remove the final dot from rooted DNS names to make them look more usual.
@@ -148,7 +149,7 @@ func lookupSRV(name string) (*dns.Msg, error) {
 					return response, nil
 				}
 			} else {
-				glog.Warningf("resolving %s.%s failed: %s", name, suffix, err)
+				log.Warn("resolving %s.%s failed: %s", name, suffix, err)
 			}
 		}
 		response, err = lookup(name, dns.TypeSRV, client, servAddr, "", false)
