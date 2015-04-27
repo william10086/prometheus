@@ -25,7 +25,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/golang/glog"
+	log "github.com/inconshreveable/log15"
 
 	clientmodel "github.com/prometheus/client_golang/model"
 	registry "github.com/prometheus/client_golang/prometheus"
@@ -92,7 +92,7 @@ type prometheus struct {
 func NewPrometheus() *prometheus {
 	conf, err := config.LoadFromFile(*configFile)
 	if err != nil {
-		glog.Errorf("Couldn't load configuration (-config.file=%s): %v\n", *configFile, err)
+		log.Error("Couldn't load configuration", "config_file", *configFile, "error", err)
 		os.Exit(2)
 	}
 
@@ -107,7 +107,7 @@ func NewPrometheus() *prometheus {
 	case "adaptive":
 		syncStrategy = local.Adaptive
 	default:
-		glog.Errorf("Invalid flag value for 'storage.local.series-sync-strategy': %s\n", *seriesSyncStrategy)
+		log.Error("Invalid flag value for 'storage.local.series-sync-strategy'", "value", *seriesSyncStrategy)
 		os.Exit(2)
 	}
 
@@ -124,14 +124,14 @@ func NewPrometheus() *prometheus {
 	}
 	memStorage, err := local.NewMemorySeriesStorage(o)
 	if err != nil {
-		glog.Error("Error opening memory series storage: ", err)
+		log.Error("Error opening memory series storage", "error", err)
 		os.Exit(1)
 	}
 
 	var sampleAppender storage.SampleAppender
 	var remoteStorageQueues []*remote.StorageQueueManager
 	if *opentsdbURL == "" && *influxdbURL == "" {
-		glog.Warningf("No remote storage URLs provided; not sending any samples to long-term storage")
+		log.Warn("No remote storage URLs provided; not sending any samples to long-term storage")
 		sampleAppender = memStorage
 	} else {
 		fanout := storage.Fanout{memStorage}
@@ -164,7 +164,7 @@ func NewPrometheus() *prometheus {
 		PathPrefix:          *pathPrefix,
 	})
 	if err := ruleManager.AddRulesFromConfig(conf); err != nil {
-		glog.Error("Error loading rule files: ", err)
+		log.Error("Error loading rule files", "error", err)
 		os.Exit(1)
 	}
 
@@ -237,7 +237,7 @@ func (p *prometheus) Serve() {
 	go func() {
 		err := p.webService.ServeForever(*pathPrefix)
 		if err != nil {
-			glog.Fatal(err)
+			log.Crit(err.Error())
 		}
 	}()
 
@@ -245,16 +245,16 @@ func (p *prometheus) Serve() {
 	signal.Notify(notifier, os.Interrupt, syscall.SIGTERM)
 	select {
 	case <-notifier:
-		glog.Warning("Received SIGTERM, exiting gracefully...")
+		log.Warn("Received SIGTERM, exiting gracefully...")
 	case <-p.webService.QuitChan:
-		glog.Warning("Received termination request via web service, exiting gracefully...")
+		log.Warn("Received termination request via web service, exiting gracefully...")
 	}
 
 	p.targetManager.Stop()
 	p.ruleManager.Stop()
 
 	if err := p.storage.Stop(); err != nil {
-		glog.Error("Error stopping local storage: ", err)
+		log.Error("Error stopping local storage", "error", err)
 	}
 
 	for _, q := range p.remoteStorageQueues {
@@ -262,7 +262,7 @@ func (p *prometheus) Serve() {
 	}
 
 	p.notificationHandler.Stop()
-	glog.Info("See you next time!")
+	log.Info("See you next time!")
 }
 
 // Describe implements registry.Collector.
@@ -340,12 +340,15 @@ func usage() {
 }
 
 func main() {
+	h := log.CallerFileHandler(log.StdoutHandler)
+	log.Root().SetHandler(h)
+
 	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
 	flag.CommandLine.Usage = usage
 
 	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
 		if err != flag.ErrHelp {
-			glog.Errorf("Invalid command line arguments. Help: %s -h", os.Args[0])
+			log.Error(fmt.Sprintf("Invalid command line arguments. Help: %s -h", os.Args[0]))
 		}
 		os.Exit(2)
 	}
