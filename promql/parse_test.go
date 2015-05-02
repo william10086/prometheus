@@ -168,6 +168,10 @@ var testExpr = []struct {
 		fail:   true,
 		errMsg: "unclosed left parenthesis",
 	}, {
+		input:  "999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+		fail:   true,
+		errMsg: "out of range",
+	}, {
 		input:  "(",
 		fail:   true,
 		errMsg: "unclosed left parenthesis",
@@ -476,6 +480,14 @@ var testExpr = []struct {
 		input:  "foo or on(bar) group_right(baz) bar",
 		fail:   true,
 		errMsg: "no grouping allowed for AND and OR operations",
+	}, {
+		input:  `http_requests{group="production"} / on(instance) group_left cpu_count{type="smp"}`,
+		fail:   true,
+		errMsg: "unexpected identifier \"cpu_count\" in grouping opts, expected \"(\"",
+	}, {
+		input:  `http_requests{group="production"} + on(instance) group_left(job,instance) cpu_count{type="smp"}`,
+		fail:   true,
+		errMsg: "label \"instance\" must not occur in ON and INCLUDE clause at once",
 	},
 	// Test vector selector.
 	{
@@ -670,6 +682,9 @@ var testExpr = []struct {
 		input:  `foo[1]`,
 		fail:   true,
 		errMsg: "missing unit character in duration",
+	}, {
+		input: `foo["5m"]`,
+		fail:  true,
 	}, {
 		input:  `some_metric[5m] OFFSET 1`,
 		fail:   true,
@@ -1215,4 +1230,77 @@ func mustGetFunction(name string) *Function {
 		panic(fmt.Errorf("function %q does not exist", name))
 	}
 	return f
+}
+
+var testSeries = []struct {
+	input          string
+	expectedMetric clientmodel.Metric
+	expectedValues []clientmodel.SampleValue
+	fail           bool
+}{
+	{
+		input:          `{} 1 2 3`,
+		expectedMetric: clientmodel.Metric{},
+		expectedValues: []clientmodel.SampleValue{1, 2, 3},
+	}, {
+		input: `{a="b"} -1 2 3`,
+		expectedMetric: clientmodel.Metric{
+			"a": "b",
+		},
+		expectedValues: []clientmodel.SampleValue{-1, 2, 3},
+	}, {
+		input: `my_metric 1 2 3`,
+		expectedMetric: clientmodel.Metric{
+			clientmodel.MetricNameLabel: "my_metric",
+		},
+		expectedValues: []clientmodel.SampleValue{1, 2, 3},
+	}, {
+		input: `my_metric{} 1 2 3`,
+		expectedMetric: clientmodel.Metric{
+			clientmodel.MetricNameLabel: "my_metric",
+		},
+		expectedValues: []clientmodel.SampleValue{1, 2, 3},
+	}, {
+		input: `my_metric{a="b"} 1 2 3`,
+		expectedMetric: clientmodel.Metric{
+			clientmodel.MetricNameLabel: "my_metric",
+			"a": "b",
+		},
+		expectedValues: []clientmodel.SampleValue{1, 2, 3},
+	}, {
+		input: `my_metric{a="b"} 1 2 3-10*4`,
+		expectedMetric: clientmodel.Metric{
+			clientmodel.MetricNameLabel: "my_metric",
+			"a": "b",
+		},
+		expectedValues: []clientmodel.SampleValue{1, 2, 3, -7, -17, -27, -37},
+	},
+}
+
+func TestParseSeries(t *testing.T) {
+	for _, test := range testSeries {
+		parser := newParser(test.input)
+
+		metric, vals, err := parser.parseSeries()
+		if !test.fail && err != nil {
+			t.Errorf("error in input: \n\n%s\n", test.input)
+			t.Fatalf("could not parse: %s", err)
+		}
+		if test.fail && err != nil {
+			continue
+		}
+
+		if test.fail {
+			if err != nil {
+				continue
+			}
+			t.Errorf("error in input: \n\n%s\n", test.input)
+			t.Fatalf("failure expected, but passed")
+		}
+
+		if !reflect.DeepEqual(vals, test.expectedValues) || !reflect.DeepEqual(metric, test.expectedMetric) {
+			t.Errorf("error in input: \n\n%s\n", test.input)
+			t.Fatalf("no match\n\nexpected:\n%s %s\ngot: \n%s %s\n", test.expectedMetric, test.expectedValues, metric, vals)
+		}
+	}
 }

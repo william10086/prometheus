@@ -70,6 +70,11 @@ func ParseExpr(input string) (Expr, error) {
 	return expr, err
 }
 
+func parseSeries(input string) (clientmodel.Metric, []clientmodel.SampleValue, error) {
+	p := newParser(input)
+	return p.parseSeries()
+}
+
 // newParser returns a new parser.
 func newParser(input string) *parser {
 	p := &parser{
@@ -110,6 +115,67 @@ func (p *parser) parseExpr() (expr Expr, err error) {
 		p.errorf("no expression found in input")
 	}
 	return
+}
+
+func (p *parser) parseSeries() (m clientmodel.Metric, vals []clientmodel.SampleValue, err error) {
+	defer p.recover(&err)
+
+	name := ""
+	m = clientmodel.Metric{}
+
+	t := p.peek().typ
+	if t == itemIdentifier || t == itemMetricIdentifier {
+		name = p.next().val
+		t = p.peek().typ
+	}
+	if t == itemLeftBrace {
+		m = clientmodel.Metric(p.labelSet())
+	}
+	if name != "" {
+		m[clientmodel.MetricNameLabel] = clientmodel.LabelValue(name)
+	}
+
+	const ctx = "series values"
+	for {
+		sign := 1.0
+		if t := p.peek().typ; t == itemSUB || t == itemADD {
+			if p.next().typ == itemSUB {
+				sign = -1
+			}
+		}
+		k := sign * p.number(p.expect(itemNumber, ctx).val)
+		vals = append(vals, clientmodel.SampleValue(k))
+
+		if t := p.peek().typ; t == itemNumber {
+			continue
+		} else if t == itemEOF {
+			break
+		} else if t != itemADD && t != itemSUB {
+			p.errorf("expected next number or relative expansion in %s but got %s", ctx, t.desc())
+		}
+
+		sign = 1.0
+		if p.next().typ == itemSUB {
+			sign = -1.0
+		}
+		offset := sign * p.number(p.expect(itemNumber, ctx).val)
+		p.expect(itemMUL, ctx)
+
+		times, err := strconv.ParseUint(p.expect(itemNumber, ctx).val, 10, 64)
+		if err != nil {
+			p.errorf("invalid repetition in %s: %s", ctx, err)
+		}
+
+		for i := uint64(0); i < times; i++ {
+			k += offset
+			vals = append(vals, clientmodel.SampleValue(k))
+		}
+
+		if p.peek().typ == itemEOF {
+			break
+		}
+	}
+	return m, vals, nil
 }
 
 // typecheck checks correct typing of the parsed statements or expression.
@@ -459,6 +525,18 @@ func (p *parser) rangeSelector(vs *VectorSelector) *MatrixSelector {
 	return e
 }
 
+func (p *parser) number(val string) float64 {
+	n, err := strconv.ParseInt(val, 0, 64)
+	f := float64(n)
+	if err != nil {
+		f, err = strconv.ParseFloat(val, 64)
+	}
+	if err != nil {
+		p.errorf("error parsing number: %s", err)
+	}
+	return f
+}
+
 // primaryExpr parses a primary expression.
 //
 //		<metric_name> | <function_call> | <vector_aggregation> | <literal>
@@ -466,14 +544,7 @@ func (p *parser) rangeSelector(vs *VectorSelector) *MatrixSelector {
 func (p *parser) primaryExpr() Expr {
 	switch t := p.next(); {
 	case t.typ == itemNumber:
-		n, err := strconv.ParseInt(t.val, 0, 64)
-		f := float64(n)
-		if err != nil {
-			f, err = strconv.ParseFloat(t.val, 64)
-		}
-		if err != nil {
-			p.errorf("error parsing number: %s", err)
-		}
+		f := p.number(t.val)
 		return &NumberLiteral{clientmodel.SampleValue(f)}
 
 	case t.typ == itemString:
