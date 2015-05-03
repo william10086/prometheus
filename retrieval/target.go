@@ -204,9 +204,6 @@ func (t *target) Update(cfg *config.ScrapeConfig, baseLabels clientmodel.LabelSe
 			t.baseLabels[name] = val
 		}
 	}
-	if _, ok := t.baseLabels[clientmodel.InstanceLabel]; !ok {
-		t.baseLabels[clientmodel.InstanceLabel] = clientmodel.LabelValue(t.InstanceIdentifier())
-	}
 }
 
 func (t *target) String() string {
@@ -398,23 +395,26 @@ func (t *target) URL() string {
 
 // InstanceIdentifier implements Target.
 func (t *target) InstanceIdentifier() string {
-	// If we are given a port in the host port, use that.
-	if strings.Contains(t.url.Host, ":") {
-		return t.url.Host
-	}
-
 	t.RLock()
 	defer t.RUnlock()
+	return instanceIdentifier(t.url.Host, t.url.Scheme)
+}
 
-	// Otherwise, deduce port based on protocol.
-	if t.url.Scheme == "http" {
-		return fmt.Sprintf("%s:80", t.url.Host)
-	} else if t.url.Scheme == "https" {
-		return fmt.Sprintf("%s:443", t.url.Host)
+func instanceIdentifier(host, scheme string) string {
+	// If we are given a port in the host port, use that.
+	if strings.Contains(host, ":") {
+		return host
 	}
 
-	glog.Warningf("Unknown scheme %s when generating identifier, using host without port number.", t.url.Scheme)
-	return t.url.Host
+	// Otherwise, deduce port based on protocol.
+	if scheme == "http" {
+		return fmt.Sprintf("%s:80", host)
+	} else if scheme == "https" {
+		return fmt.Sprintf("%s:443", host)
+	}
+
+	glog.Warningf("Unknown scheme %s when generating identifier, using host without port number.", scheme)
+	return host
 }
 
 // GlobalURL implements Target.

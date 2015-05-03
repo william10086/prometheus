@@ -329,6 +329,10 @@ func (tm *TargetManager) targetsFromGroup(tg *config.TargetGroup, cfg *config.Sc
 		if _, ok := labels[clientmodel.AddressLabel]; !ok {
 			return nil, fmt.Errorf("instance %d in target group %s has no address", i, tg)
 		}
+		if _, ok := labels[clientmodel.InstanceLabel]; !ok {
+			iid := instanceIdentifier(string(labels[clientmodel.AddressLabel]), cfg.GetScheme())
+			labels[clientmodel.InstanceLabel] = clientmodel.LabelValue(iid)
+		}
 
 		labels, err := Relabel(labels, cfg.RelabelConfigs()...)
 		if err != nil {

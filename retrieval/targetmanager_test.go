@@ -173,7 +173,7 @@ func TestTargetManagerConfigUpdate(t *testing.T) {
 			},
 			{Target: []string{"test.com:1234"}},
 			{
-				Target: []string{"test.com:1235"},
+				Target: []string{"best.com:1235"},
 				Labels: &pb.LabelPairs{Label: []*pb.LabelPair{
 					{Name: proto.String("instance"), Value: proto.String("fixed")},
 				}},
@@ -184,7 +184,7 @@ func TestTargetManagerConfigUpdate(t *testing.T) {
 				SourceLabel: []string{string(clientmodel.AddressLabel)},
 				Regex:       proto.String(`^test\.(.*?):(.*)`),
 				Replacement: proto.String("foo.${1}:${2}"),
-				TargetLabel: proto.String(string(clientmodel.AddressLabel)),
+				TargetLabel: proto.String(string(clientmodel.InstanceLabel)),
 			}, {
 				// Add a new label for example.* targets.
 				SourceLabel: []string{string(clientmodel.AddressLabel), "boom", "foo"},
