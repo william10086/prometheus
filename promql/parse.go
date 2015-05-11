@@ -70,6 +70,113 @@ func ParseExpr(input string) (Expr, error) {
 	return expr, err
 }
 
+// parseSeriesDesc parses the description of a time series.
+func parseSeriesDesc(input string) (clientmodel.Metric, []sequenceValue, error) {
+	p := newParser(input)
+	p.lex.seriesDesc = true
+
+	return p.parseSeriesDesc()
+}
+
+// sequenceValue is a omittable value in a sequence of time series values.
+type sequenceValue struct {
+	Value   clientmodel.SampleValue
+	Omitted bool
+}
+
+func (v sequenceValue) String() string {
+	if v.Omitted {
+		return "_"
+	}
+	return v.Value.String()
+}
+
+// parseSeriesDesc parses a description of a time series into its metric and value sequence.
+func (p *parser) parseSeriesDesc() (m clientmodel.Metric, vals []sequenceValue, err error) {
+	defer p.recover(&err)
+
+	name := ""
+	m = clientmodel.Metric{}
+
+	t := p.peek().typ
+	if t == itemIdentifier || t == itemMetricIdentifier {
+		name = p.next().val
+		t = p.peek().typ
+	}
+	if t == itemLeftBrace {
+		m = clientmodel.Metric(p.labelSet())
+	}
+	if name != "" {
+		m[clientmodel.MetricNameLabel] = clientmodel.LabelValue(name)
+	}
+
+	blank := sequenceValue{Omitted: true}
+
+	const ctx = "series values"
+	for {
+		if p.peek().typ == itemEOF {
+			break
+		}
+
+		// Extract blanks.
+		if p.peek().typ == itemBlank {
+			p.next()
+			times := uint64(1)
+			if p.peek().typ == itemMUL {
+				p.next()
+				times, err = strconv.ParseUint(p.expect(itemNumber, ctx).val, 10, 64)
+				if err != nil {
+					p.errorf("invalid repetition in %s: %s", ctx, err)
+				}
+			}
+			for i := uint64(0); i < times; i++ {
+				vals = append(vals, blank)
+			}
+			continue
+		}
+
+		// Extract values.
+		sign := 1.0
+		if t := p.peek().typ; t == itemSUB || t == itemADD {
+			if p.next().typ == itemSUB {
+				sign = -1
+			}
+		}
+		k := sign * p.number(p.expect(itemNumber, ctx).val)
+		vals = append(vals, sequenceValue{
+			Value: clientmodel.SampleValue(k),
+		})
+
+		if t := p.peek().typ; t == itemNumber || t == itemBlank {
+			continue
+		} else if t == itemEOF {
+			break
+		} else if t != itemADD && t != itemSUB {
+			p.errorf("expected next value or relative expansion in %s but got %s", ctx, t.desc())
+		}
+
+		sign = 1.0
+		if p.next().typ == itemSUB {
+			sign = -1.0
+		}
+		offset := sign * p.number(p.expect(itemNumber, ctx).val)
+		p.expect(itemMUL, ctx)
+
+		times, err := strconv.ParseUint(p.expect(itemNumber, ctx).val, 10, 64)
+		if err != nil {
+			p.errorf("invalid repetition in %s: %s", ctx, err)
+		}
+
+		for i := uint64(0); i < times; i++ {
+			k += offset
+			vals = append(vals, sequenceValue{
+				Value: clientmodel.SampleValue(k),
+			})
+		}
+	}
+	return m, vals, nil
+}
+
 // newParser returns a new parser.
 func newParser(input string) *parser {
 	p := &parser{

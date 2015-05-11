@@ -14,14 +14,16 @@
 package promql
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
 
 var tests = []struct {
-	input    string
-	expected []item
-	fail     bool
+	input      string
+	expected   []item
+	fail       bool
+	seriesDesc bool // Whether to lex a series description.
 }{
 	// Test common stuff.
 	{
@@ -354,6 +356,19 @@ var tests = []struct {
 	}, {
 		input: `]`, fail: true,
 	},
+	// Test series description.
+	{
+		input: `{} _ 1 x .3`,
+		expected: []item{
+			{itemLeftBrace, 0, `{`},
+			{itemRightBrace, 1, `}`},
+			{itemBlank, 3, `_`},
+			{itemNumber, 5, `1`},
+			{itemMUL, 7, `x`},
+			{itemNumber, 9, `.3`},
+		},
+		seriesDesc: true,
+	},
 }
 
 // TestLexer tests basic functionality of the lexer. More elaborate tests are implemented
@@ -361,6 +376,7 @@ var tests = []struct {
 func TestLexer(t *testing.T) {
 	for i, test := range tests {
 		l := lex(test.input)
+		l.seriesDesc = test.seriesDesc
 
 		out := []item{}
 		for it := range l.items {
@@ -370,20 +386,32 @@ func TestLexer(t *testing.T) {
 		lastItem := out[len(out)-1]
 		if test.fail {
 			if lastItem.typ != itemError {
-				t.Fatalf("%d: expected lexing error but did not fail", i)
+				t.Logf("%d: input %q", i, test.input)
+				t.Fatalf("expected lexing error but did not fail")
 			}
 			continue
 		}
 		if lastItem.typ == itemError {
-			t.Fatalf("%d: unexpected lexing error: %s", i, lastItem)
+			t.Logf("%d: input %q", i, test.input)
+			t.Fatalf("unexpected lexing error: %s", lastItem)
 		}
 
 		if !reflect.DeepEqual(lastItem, item{itemEOF, Pos(len(test.input)), ""}) {
-			t.Fatalf("%d: lexing error: expected output to end with EOF item", i)
+			t.Logf("%d: input %q", i, test.input)
+			t.Fatalf("lexing error: expected output to end with EOF item")
 		}
 		out = out[:len(out)-1]
 		if !reflect.DeepEqual(out, test.expected) {
-			t.Errorf("%d: lexing mismatch:\nexpected: %#v\n-----\ngot: %#v", i, test.expected, out)
+			t.Logf("%d: input %q", i, test.input)
+			t.Fatalf("lexing mismatch:\nexpected:\n%s\ngot:\n%s", expectedList(test.expected), expectedList(out))
 		}
 	}
+}
+
+func expectedList(exp []item) string {
+	s := ""
+	for _, it := range exp {
+		s += fmt.Sprintf("\t%#v\n", it)
+	}
+	return s
 }

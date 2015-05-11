@@ -104,6 +104,7 @@ const (
 	itemString
 	itemNumber
 	itemDuration
+	itemBlank
 
 	operatorsStart
 	// Operators.
@@ -193,6 +194,7 @@ var itemTypeStr = map[itemType]string{
 	itemComma:        ",",
 	itemAssign:       "=",
 	itemSemicolon:    ";",
+	itemBlank:        "_",
 
 	itemSUB:      "-",
 	itemADD:      "+",
@@ -277,6 +279,7 @@ type lexer struct {
 	braceOpen   bool // Whether a { is opened.
 	bracketOpen bool // Whether a [ is opened.
 	stringOpen  rune // Quote rune of the string currently being read.
+	seriesDesc  bool // Whether we are lexing a series description.
 }
 
 // next returns the next rune in the input.
@@ -544,11 +547,39 @@ func lexInsideBraces(l *lexer) stateFn {
 	case r == '}':
 		l.emit(itemRightBrace)
 		l.braceOpen = false
+
+		if l.seriesDesc {
+			return lexSequence
+		}
 		return lexStatements
 	default:
 		return l.errorf("unexpected character inside braces: %q", r)
 	}
 	return lexInsideBraces
+}
+
+// lexSequence scans a value sequence of a series description.
+func lexSequence(l *lexer) stateFn {
+	switch r := l.next(); {
+	case r == eof:
+		return lexStatements
+	case isSpace(r):
+		lexSpace(l)
+	case r == '+':
+		l.emit(itemADD)
+	case r == '-':
+		l.emit(itemSUB)
+	case r == 'x':
+		l.emit(itemMUL)
+	case r == '_':
+		l.emit(itemBlank)
+	case unicode.IsDigit(r) || (r == '.' && unicode.IsDigit(l.peek())):
+		l.backup()
+		lexNumber(l)
+	default:
+		l.errorf("unexpected character in series sequence: %q", r)
+	}
+	return lexSequence
 }
 
 // lexString scans a quoted string. The initial quote has already been seen.
@@ -650,7 +681,7 @@ func (l *lexer) scanNumber() bool {
 		l.acceptRun("0123456789")
 	}
 	// Next thing must not be alphanumeric.
-	if isAlphaNumeric(l.peek()) {
+	if isAlphaNumeric(l.peek()) && !l.seriesDesc {
 		return false
 	}
 	return true
